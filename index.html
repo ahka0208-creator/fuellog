@@ -11,6 +11,7 @@
             --card-bg: #FFFFFF;
             --text-color: #1C1C1E;
             --border-color: #E5E5EA;
+            --edit-color: #FF9500;
         }
         
         body {
@@ -40,6 +41,41 @@
             margin-bottom: 20px;
         }
 
+        /* 統計面板樣式 */
+        .summary-container {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .summary-box {
+            flex: 1;
+            background-color: #e8f5e9;
+            border: 1px solid #c8e6c9;
+            color: #2e7d32;
+            padding: 15px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .avg-box {
+            background-color: #e3f2fd;
+            border: 1px solid #bbdefb;
+            color: #1565c0;
+        }
+
+        .summary-title {
+            font-size: 13px;
+            font-weight: bold;
+            margin-bottom: 5px;
+            opacity: 0.8;
+        }
+
+        .summary-value {
+            font-size: 22px;
+            font-weight: bold;
+        }
+
         .form-group {
             margin-bottom: 15px;
         }
@@ -59,7 +95,7 @@
             border: 1px solid var(--border-color);
             border-radius: 8px;
             font-size: 16px;
-            -webkit-appearance: none; /* 防止 iOS 預設樣式 */
+            -webkit-appearance: none;
         }
 
         input:focus {
@@ -68,8 +104,14 @@
             box-shadow: 0 0 0 2px rgba(0,122,255,0.2);
         }
 
-        button {
-            width: 100%;
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        button.primary-btn {
+            flex: 1;
             padding: 14px;
             background-color: var(--primary-color);
             color: white;
@@ -78,11 +120,20 @@
             font-size: 16px;
             font-weight: bold;
             cursor: pointer;
-            margin-top: 10px;
+            transition: background 0.2s;
         }
 
-        button:active {
-            background-color: #0056b3;
+        button.cancel-btn {
+            flex: 1;
+            padding: 14px;
+            background-color: #8E8E93;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            display: none;
         }
 
         .table-container {
@@ -112,17 +163,22 @@
             font-size: 15px;
         }
 
-        .delete-btn {
-            background-color: #FF3B30;
+        .action-btns {
+            display: flex;
+            gap: 5px;
+        }
+
+        .edit-btn, .delete-btn {
             color: white;
             border: none;
             padding: 6px 10px;
             border-radius: 6px;
             font-size: 12px;
             cursor: pointer;
-            width: auto;
-            margin: 0;
         }
+
+        .edit-btn { background-color: var(--edit-color); }
+        .delete-btn { background-color: #FF3B30; }
 
         .empty-state {
             text-align: center;
@@ -136,6 +192,19 @@
 <div class="container">
     <h2>🚗 入油紀錄小工具</h2>
 
+    <!-- 統計面板 -->
+    <div class="summary-container">
+        <div class="summary-box">
+            <div class="summary-title">累積總花費</div>
+            <div class="summary-value">$<span id="totalCostDisplay">0</span></div>
+        </div>
+        <div class="summary-box avg-box">
+            <div class="summary-title">平均油耗</div>
+            <div class="summary-value"><span id="avgKmLDisplay">--</span></div>
+        </div>
+    </div>
+
+    <!-- 表單 -->
     <div class="card">
         <form id="refuelForm">
             <div class="form-group">
@@ -154,10 +223,15 @@
                 <label>總花費 ($)</label>
                 <input type="number" id="cost" step="0.1" placeholder="例如: 700" required>
             </div>
-            <button type="submit">新增紀錄</button>
+            
+            <div class="btn-group">
+                <button type="submit" id="submitBtn" class="primary-btn">新增紀錄</button>
+                <button type="button" id="cancelBtn" class="cancel-btn" onclick="cancelEdit()">取消編輯</button>
+            </div>
         </form>
     </div>
 
+    <!-- 紀錄列表 -->
     <div class="card table-container">
         <table>
             <thead>
@@ -184,22 +258,34 @@
     const form = document.getElementById('refuelForm');
     const tableBody = document.getElementById('recordTableBody');
     const emptyState = document.getElementById('emptyState');
+    const submitBtn = document.getElementById('submitBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+    const totalCostDisplay = document.getElementById('totalCostDisplay');
+    const avgKmLDisplay = document.getElementById('avgKmLDisplay');
     
-    // 預設將日期設定為今天
+    let currentEditIndex = -1; // 記錄編輯狀態
+
     document.getElementById('date').valueAsDate = new Date();
 
-    // 載入並顯示紀錄
+    // 載入並顯示紀錄，同時計算總花費及平均油耗
     function loadRecords() {
         const records = JSON.parse(localStorage.getItem('myRefuelRecords')) || [];
         tableBody.innerHTML = '';
         
+        let totalCost = 0;
+        
         if (records.length === 0) {
             emptyState.style.display = 'block';
+            totalCostDisplay.innerText = '0';
+            avgKmLDisplay.innerText = '--';
         } else {
             emptyState.style.display = 'none';
+            
+            // 1. 產生表格與計算總花費
             records.forEach((record, index) => {
+                totalCost += parseFloat(record.cost) || 0;
+                
                 const tr = document.createElement('tr');
-                // 自動計算每升油價 (四捨五入至小數點後兩位)
                 const unitPrice = (record.cost / record.liters).toFixed(2);
                 
                 tr.innerHTML = `
@@ -208,16 +294,77 @@
                     <td>${record.liters}</td>
                     <td>$${record.cost}</td>
                     <td>$${unitPrice}</td>
-                    <td><button class="delete-btn" onclick="deleteRecord(${index})">刪除</button></td>
+                    <td class="action-btns">
+                        <button class="edit-btn" onclick="editRecord(${index})">編輯</button>
+                        <button class="delete-btn" onclick="deleteRecord(${index})">刪除</button>
+                    </td>
                 `;
                 tableBody.appendChild(tr);
             });
+            
+            totalCostDisplay.innerText = totalCost % 1 === 0 ? totalCost : totalCost.toFixed(1);
+
+            // 2. 計算平均油耗 (需要最少2筆紀錄)
+            if (records.length > 1) {
+                // 將紀錄按里數從小到大排序以進行計算
+                const sortedRecords = [...records].sort((a, b) => parseFloat(a.mileage) - parseFloat(b.mileage));
+                
+                const minMileage = parseFloat(sortedRecords[0].mileage);
+                const maxMileage = parseFloat(sortedRecords[sortedRecords.length - 1].mileage);
+                const totalDistance = maxMileage - minMileage;
+                
+                // 扣除第一次入油的油量（因為第一次入油係為咗打底，之後跑嘅距離先開始計）
+                let totalLitersUsed = 0;
+                for (let i = 1; i < sortedRecords.length; i++) {
+                    totalLitersUsed += parseFloat(sortedRecords[i].liters);
+                }
+                
+                if (totalLitersUsed > 0 && totalDistance > 0) {
+                    const avgKmL = (totalDistance / totalLitersUsed).toFixed(2);
+                    avgKmLDisplay.innerText = avgKmL + ' km/L';
+                } else {
+                    avgKmLDisplay.innerText = '--';
+                }
+            } else {
+                avgKmLDisplay.innerText = '需兩筆紀錄';
+            }
         }
     }
 
-    // 新增紀錄
+    // 進入編輯模式
+    window.editRecord = function(index) {
+        const records = JSON.parse(localStorage.getItem('myRefuelRecords')) || [];
+        const record = records[index];
+        if (!record) return;
+
+        currentEditIndex = index;
+        
+        document.getElementById('date').value = record.date;
+        document.getElementById('mileage').value = record.mileage;
+        document.getElementById('liters').value = record.liters;
+        document.getElementById('cost').value = record.cost;
+
+        submitBtn.innerText = '儲存修改';
+        submitBtn.style.backgroundColor = 'var(--edit-color)';
+        cancelBtn.style.display = 'block';
+
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // 取消編輯模式
+    window.cancelEdit = function() {
+        currentEditIndex = -1;
+        form.reset();
+        document.getElementById('date').valueAsDate = new Date(); 
+        
+        submitBtn.innerText = '新增紀錄';
+        submitBtn.style.backgroundColor = 'var(--primary-color)';
+        cancelBtn.style.display = 'none';
+    }
+
+    // 提交表單 (新增 或 修改)
     form.addEventListener('submit', function(e) {
-        e.preventDefault(); // 防止網頁重新整理
+        e.preventDefault(); 
         
         const date = document.getElementById('date').value;
         const mileage = parseFloat(document.getElementById('mileage').value);
@@ -225,22 +372,22 @@
         const cost = parseFloat(document.getElementById('cost').value);
 
         const newRecord = { date, mileage, liters, cost };
-        const records = JSON.parse(localStorage.getItem('myRefuelRecords')) || [];
+        let records = JSON.parse(localStorage.getItem('myRefuelRecords')) || [];
         
-        records.push(newRecord);
+        if (currentEditIndex > -1) {
+            records[currentEditIndex] = newRecord;
+            cancelEdit();
+        } else {
+            records.push(newRecord);
+            form.reset();
+            document.getElementById('date').valueAsDate = new Date(); 
+        }
         
         // 根據日期由新至舊排序
         records.sort((a, b) => new Date(b.date) - new Date(a.date));
-        
-        // 儲存回瀏覽器
         localStorage.setItem('myRefuelRecords', JSON.stringify(records));
         
-        // 更新畫面
         loadRecords();
-        
-        // 清空表單，但保留今日日期
-        form.reset();
-        document.getElementById('date').valueAsDate = new Date(); 
     });
 
     // 刪除紀錄
@@ -249,6 +396,9 @@
             const records = JSON.parse(localStorage.getItem('myRefuelRecords')) || [];
             records.splice(index, 1);
             localStorage.setItem('myRefuelRecords', JSON.stringify(records));
+            
+            if (index === currentEditIndex) cancelEdit();
+            
             loadRecords();
         }
     }
